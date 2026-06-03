@@ -1,0 +1,65 @@
+{
+  "name": "digital-twin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TwinOps Command Center - a professional digital twin operations app for web and Windows desktop.",
+  "author": "Bluemouse AI",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "electron:dev": "concurrently \"npm:dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "desktop:dir": "npm run build && electron-builder --dir",
+    "desktop:build": "npm run build && electron-builder --win nsis",
+    "dist:web": "npm run build"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^5.4.20"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "concurrently": "^9.1.2",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.3",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "ai.bluemouse.twinops",
+    "productName": "TwinOps Command Center",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "TwinOps-Command-Center-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TwinOps Command Center"
+    }
+  }
+}
