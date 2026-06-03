@@ -46,3 +46,4 @@ Create an `A` record pointing that subdomain to:
 
 Then host the static `dist/` build from a dedicated web root and Nginx server block.
 
+See [deploy/README.md](deploy/README.md) for the isolated server setup.
