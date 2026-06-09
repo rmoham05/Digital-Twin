@@ -24,10 +24,12 @@ import {
   Wrench,
   Zap,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from "react";
 
 type AssetStatus = "healthy" | "watch" | "critical";
 type AssetKind = "HVAC" | "Pump" | "Compressor" | "Meter" | "Chiller" | "AHU";
+type PrimaryView = "dashboard" | "map" | "telemetry" | "work" | "settings";
+type WorkspaceTab = "operations" | "maintenance" | "energy" | "simulation";
 
 type Asset = {
   id: string;
@@ -187,10 +189,57 @@ const workOrders: WorkOrder[] = [
 
 const sparkline = [37, 42, 39, 45, 48, 43, 51, 56, 52, 59, 61, 57, 64, 68, 63];
 
+const navigationItems: Array<{ id: PrimaryView; label: string; icon: ReactNode }> = [
+  { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={21} /> },
+  { id: "map", label: "Asset map", icon: <Map size={21} /> },
+  { id: "telemetry", label: "Telemetry", icon: <Activity size={21} /> },
+  { id: "work", label: "Work orders", icon: <ClipboardList size={21} /> },
+  { id: "settings", label: "Settings", icon: <Settings size={21} /> },
+];
+
+const workspaceTabs: Array<{ id: WorkspaceTab; label: string }> = [
+  { id: "operations", label: "Operations" },
+  { id: "maintenance", label: "Maintenance" },
+  { id: "energy", label: "Energy" },
+  { id: "simulation", label: "Simulation" },
+];
+
+const viewTitles: Record<PrimaryView, string> = {
+  dashboard: "TwinOps Command Center",
+  map: "Asset Map",
+  telemetry: "Telemetry",
+  work: "Work Orders",
+  settings: "Settings",
+};
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
 function getStatusFromHealth(health: number): AssetStatus {
   if (health < 64) return "critical";
   if (health < 86) return "watch";
   return "healthy";
+}
+
+function generateAssets(loadFactor: number, timestamp = Date.now()): Asset[] {
+  const loadPressure = (loadFactor - 70) / 18;
+
+  return baseAssets.map((asset, index) => {
+    const wave = Math.sin(timestamp / 5200 + index) * 1.3;
+    const health = clamp(asset.health + wave * 2.2 - loadPressure * 4.1, 41, 99);
+    const status = getStatusFromHealth(health);
+
+    return {
+      ...asset,
+      health,
+      status,
+      temperature: asset.temperature + wave * 0.22 + loadPressure * 1.1,
+      vibration: clamp(asset.vibration + wave * 0.06 + loadPressure * 0.16, 0.1, 7.4),
+      energyKw: clamp(asset.energyKw + wave * 0.35 + loadPressure * 2.4, 2, 92),
+      nextServiceDays: Math.max(1, Math.round(asset.nextServiceDays - Math.max(0, loadPressure * 3))),
+    };
+  });
 }
 
 function statusLabel(status: AssetStatus) {
@@ -199,46 +248,53 @@ function statusLabel(status: AssetStatus) {
 
 function statusIcon(status: AssetStatus) {
   if (status === "healthy") return <CheckCircle2 size={16} />;
-  if (status === "watch") return <AlertTriangle size={16} />;
   return <AlertTriangle size={16} />;
 }
 
 function App() {
-  const [assets, setAssets] = useState<Asset[]>(baseAssets);
+  const [assets, setAssets] = useState<Asset[]>(() => generateAssets(72));
   const [isLive, setIsLive] = useState(true);
   const [loadFactor, setLoadFactor] = useState(72);
   const [activeZone, setActiveZone] = useState("All zones");
   const [selectedAssetId, setSelectedAssetId] = useState("pump-03");
+  const [activeView, setActiveView] = useState<PrimaryView>("dashboard");
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>("operations");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [lastRefresh, setLastRefresh] = useState<Date>(() => new Date());
+
+  useEffect(() => {
+    setAssets(generateAssets(loadFactor));
+    setLastRefresh(new Date());
+  }, [loadFactor]);
 
   useEffect(() => {
     if (!isLive) return;
 
     const interval = window.setInterval(() => {
-      setAssets((current) =>
-        current.map((asset, index) => {
-          const wave = Math.sin(Date.now() / 5200 + index) * 1.3;
-          const loadPressure = (loadFactor - 70) / 18;
-          const health = Math.max(41, Math.min(99, asset.health + wave * 0.24 - loadPressure * 0.38));
-          const status = getStatusFromHealth(health);
-
-          return {
-            ...asset,
-            health,
-            status,
-            temperature: asset.temperature + wave * 0.08 + loadPressure * 0.11,
-            vibration: Math.max(0.1, asset.vibration + wave * 0.018 + loadPressure * 0.02),
-            energyKw: Math.max(2, asset.energyKw + wave * 0.09 + loadPressure * 0.2),
-          };
-        }),
-      );
+      setAssets(generateAssets(loadFactor));
+      setLastRefresh(new Date());
     }, 1800);
 
     return () => window.clearInterval(interval);
   }, [isLive, loadFactor]);
 
   const zones = useMemo(() => ["All zones", ...Array.from(new Set(baseAssets.map((asset) => asset.zone)))], []);
-  const visibleAssets = activeZone === "All zones" ? assets : assets.filter((asset) => asset.zone === activeZone);
   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0];
+
+  const visibleAssets = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    return assets.filter((asset) => {
+      const matchesZone = activeZone === "All zones" || asset.zone === activeZone;
+      const matchesSearch =
+        !query ||
+        asset.name.toLowerCase().includes(query) ||
+        asset.kind.toLowerCase().includes(query) ||
+        asset.zone.toLowerCase().includes(query);
+
+      return matchesZone && matchesSearch;
+    });
+  }, [activeZone, assets, searchQuery]);
 
   const metrics = useMemo(() => {
     const averageHealth = Math.round(assets.reduce((sum, asset) => sum + asset.health, 0) / assets.length);
@@ -264,40 +320,449 @@ function App() {
     return { energyDelta, riskDelta, maintenanceShift };
   }, [loadFactor]);
 
+  function refreshTelemetry() {
+    setAssets(generateAssets(loadFactor));
+    setLastRefresh(new Date());
+  }
+
+  function exportReport() {
+    const report = {
+      generatedAt: new Date().toISOString(),
+      dataMode: "demo",
+      metrics,
+      assets,
+      alerts: baseAlerts,
+      workOrders,
+    };
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "twinops-demo-report.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const renderTwinMap = (focused = false) => (
+    <section className={`twinCanvas ${focused ? "focusPanel" : ""}`} aria-label="Digital twin map">
+      <div className="sectionHeader">
+        <div>
+          <p className="eyebrow">Facility Twin</p>
+          <h2>West Campus Building A</h2>
+        </div>
+        <span className="syncBadge">
+          <Server size={15} />
+          demo feed
+        </span>
+      </div>
+
+      <div className="facilityMap">
+        {visibleAssets.length > 0 ? (
+          visibleAssets.map((asset, index) => (
+            <button
+              key={asset.id}
+              className={`assetNode ${asset.status} ${selectedAsset.id === asset.id ? "selected" : ""}`}
+              style={{ gridArea: `node${Math.min(index + 1, 6)}` }}
+              onClick={() => setSelectedAssetId(asset.id)}
+            >
+              <span className="nodeIcon">
+                {asset.kind === "Pump" ? <Gauge size={18} /> : asset.kind === "AHU" ? <Fan size={18} /> : <Cpu size={18} />}
+              </span>
+              <span className="assetNodeText">
+                <strong>{asset.name}</strong>
+                <small>{asset.zone}</small>
+              </span>
+              <b>{Math.round(asset.health)}%</b>
+            </button>
+          ))
+        ) : (
+          <div className="emptyState">No assets match the current filter.</div>
+        )}
+        {visibleAssets.length > 2 && (
+          <>
+            <span className="mapLine lineA" />
+            <span className="mapLine lineB" />
+            <span className="mapLine lineC" />
+          </>
+        )}
+      </div>
+    </section>
+  );
+
+  const renderAssetInspector = () => (
+    <section className="assetInspector" aria-label="Selected asset">
+      <div className="sectionHeader compact">
+        <div>
+          <p className="eyebrow">Selected Asset</p>
+          <h2>{selectedAsset.name}</h2>
+        </div>
+        <span className={`statusPill ${selectedAsset.status}`}>
+          {statusIcon(selectedAsset.status)}
+          {statusLabel(selectedAsset.status)}
+        </span>
+      </div>
+
+      <div className="healthDial" style={{ "--health": selectedAsset.health } as CSSProperties}>
+        <span>{Math.round(selectedAsset.health)}%</span>
+        <small>Health</small>
+      </div>
+
+      <div className="inspectorStats">
+        <SmallStat icon={<Thermometer size={18} />} label="Temp" value={`${selectedAsset.temperature.toFixed(1)} C`} />
+        <SmallStat icon={<Activity size={18} />} label="Vibration" value={`${selectedAsset.vibration.toFixed(1)} mm/s`} />
+        <SmallStat icon={<Zap size={18} />} label="Energy" value={`${selectedAsset.energyKw.toFixed(1)} kW`} />
+      </div>
+
+      <div className="recommendation">
+        <Wrench size={18} />
+        <p>
+          Inspect within <strong>{selectedAsset.nextServiceDays} days</strong>. Failure probability is highest in bearing
+          wear and abnormal load cycling.
+        </p>
+      </div>
+    </section>
+  );
+
+  const renderEnergyPanel = () => (
+    <section className="chartPanel" aria-label="Energy trend">
+      <div className="sectionHeader compact">
+        <div>
+          <p className="eyebrow">Energy</p>
+          <h2>24-hour demand</h2>
+        </div>
+        <span className="deltaBadge">+4.8%</span>
+      </div>
+      <Sparkline values={sparkline} />
+    </section>
+  );
+
+  const renderSimulatorPanel = () => (
+    <section className="simulatorPanel" aria-label="Scenario simulator">
+      <div className="sectionHeader compact">
+        <div>
+          <p className="eyebrow">Scenario</p>
+          <h2>Operating load</h2>
+        </div>
+        <SlidersHorizontal size={20} />
+      </div>
+
+      <label className="sliderRow">
+        <span>{loadFactor}%</span>
+        <input
+          type="range"
+          min="45"
+          max="95"
+          value={loadFactor}
+          onChange={(event) => setLoadFactor(Number(event.target.value))}
+        />
+      </label>
+
+      <div className="impactGrid">
+        <SmallStat label="Energy" value={`${scenarioImpact.energyDelta >= 0 ? "+" : ""}${scenarioImpact.energyDelta}%`} />
+        <SmallStat label="Risk" value={`${scenarioImpact.riskDelta >= 0 ? "+" : ""}${scenarioImpact.riskDelta}%`} />
+        <SmallStat
+          label="Service"
+          value={`${scenarioImpact.maintenanceShift >= 0 ? "+" : ""}${scenarioImpact.maintenanceShift} days`}
+        />
+      </div>
+    </section>
+  );
+
+  const renderAssetTable = () => (
+    <div className="assetTableWrap">
+      <div className="sectionHeader compact">
+        <div>
+          <p className="eyebrow">Asset Fleet</p>
+          <h2>{visibleAssets.length} monitored assets</h2>
+        </div>
+        <span className="mutedCount">{metrics.watch} watchlist</span>
+      </div>
+
+      <table className="assetTable">
+        <thead>
+          <tr>
+            <th>Asset</th>
+            <th>Zone</th>
+            <th>Status</th>
+            <th>Health</th>
+            <th>Energy</th>
+            <th>Service</th>
+          </tr>
+        </thead>
+        <tbody>
+          {visibleAssets.map((asset) => (
+            <tr key={asset.id} onClick={() => setSelectedAssetId(asset.id)}>
+              <td>
+                <strong>{asset.name}</strong>
+                <span>{asset.kind}</span>
+              </td>
+              <td>{asset.zone}</td>
+              <td>
+                <span className={`statusPill ${asset.status}`}>{statusLabel(asset.status)}</span>
+              </td>
+              <td>
+                <div className="healthBar">
+                  <span style={{ width: `${asset.health}%` }} />
+                </div>
+              </td>
+              <td>{asset.energyKw.toFixed(1)} kW</td>
+              <td>{asset.nextServiceDays}d</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const renderAlertsPanel = () => (
+    <section className="alertsPanel" aria-label="Active alerts">
+      <div className="sectionHeader compact">
+        <div>
+          <p className="eyebrow">Alerts</p>
+          <h2>Active events</h2>
+        </div>
+        <span className="mutedCount">{baseAlerts.length}</span>
+      </div>
+      {baseAlerts.map((alert) => (
+        <article key={alert.id} className={`eventItem ${alert.severity}`}>
+          <span>{statusIcon(alert.severity)}</span>
+          <div>
+            <strong>{alert.title}</strong>
+            <small>
+              {alert.asset} - {alert.time}
+            </small>
+          </div>
+        </article>
+      ))}
+    </section>
+  );
+
+  const renderWorkPanel = () => (
+    <section className="workPanel" aria-label="Work orders">
+      <div className="sectionHeader compact">
+        <div>
+          <p className="eyebrow">Maintenance</p>
+          <h2>Work queue</h2>
+        </div>
+        <Wrench size={19} />
+      </div>
+      {workOrders.map((order) => (
+        <article key={order.id} className="workItem">
+          <span className={`priority ${order.priority}`}>{order.priority}</span>
+          <div>
+            <strong>{order.task}</strong>
+            <small>
+              {order.id} - {order.asset} - {order.owner} - {order.due}
+            </small>
+          </div>
+        </article>
+      ))}
+    </section>
+  );
+
+  const renderTelemetryList = () => (
+    <section className="telemetryPanel" aria-label="Live telemetry">
+      <div className="sectionHeader compact">
+        <div>
+          <p className="eyebrow">Telemetry</p>
+          <h2>Current readings</h2>
+        </div>
+        <span className="mutedCount">{lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+      </div>
+      <div className="readingGrid">
+        {assets.map((asset) => (
+          <article key={asset.id} className="readingItem">
+            <strong>{asset.name}</strong>
+            <span>{asset.zone}</span>
+            <b>{asset.temperature.toFixed(1)} C</b>
+            <b>{asset.vibration.toFixed(1)} mm/s</b>
+            <b>{asset.energyKw.toFixed(1)} kW</b>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+
+  const renderSettingsView = () => (
+    <section className="settingsGrid" aria-label="Settings">
+      <article className="settingsItem">
+        <Server size={21} />
+        <div>
+          <strong>Data source</strong>
+          <span>Demo mode</span>
+        </div>
+      </article>
+      <article className="settingsItem">
+        <Activity size={21} />
+        <div>
+          <strong>Backend</strong>
+          <span>Not connected</span>
+        </div>
+      </article>
+      <article className="settingsItem">
+        <Building2 size={21} />
+        <div>
+          <strong>Deployment</strong>
+          <span>twin.bluemouse.ai ready</span>
+        </div>
+      </article>
+      <article className="settingsItem">
+        <Download size={21} />
+        <div>
+          <strong>Desktop</strong>
+          <span>Installer build available</span>
+        </div>
+      </article>
+    </section>
+  );
+
+  const renderDashboardView = () => {
+    if (activeWorkspaceTab === "maintenance") {
+      return (
+        <section className="lowerGrid">
+          {renderAssetTable()}
+          <div className="sideStack">
+            {renderWorkPanel()}
+            {renderAlertsPanel()}
+          </div>
+        </section>
+      );
+    }
+
+    if (activeWorkspaceTab === "energy") {
+      return (
+        <>
+          <div className="dashboardGrid compactDashboard">
+            {renderEnergyPanel()}
+            {renderSimulatorPanel()}
+            {renderTwinMap()}
+            {renderAssetInspector()}
+          </div>
+          <section className="lowerGrid">{renderAssetTable()}</section>
+        </>
+      );
+    }
+
+    if (activeWorkspaceTab === "simulation") {
+      return (
+        <div className="dashboardGrid compactDashboard">
+          {renderSimulatorPanel()}
+          {renderAssetInspector()}
+          {renderTwinMap(true)}
+          {renderEnergyPanel()}
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div className="dashboardGrid">
+          {renderTwinMap()}
+          {renderAssetInspector()}
+          {renderEnergyPanel()}
+          {renderSimulatorPanel()}
+        </div>
+
+        <section className="lowerGrid">
+          {renderAssetTable()}
+          <div className="sideStack">
+            {renderAlertsPanel()}
+            {renderWorkPanel()}
+          </div>
+        </section>
+      </>
+    );
+  };
+
+  const renderActiveView = () => {
+    if (activeView === "map") {
+      return (
+        <>
+          <div className="dashboardGrid mapViewGrid">
+            {renderTwinMap(true)}
+            {renderAssetInspector()}
+          </div>
+          <section className="lowerGrid">
+            {renderAssetTable()}
+            <div className="sideStack">{renderAlertsPanel()}</div>
+          </section>
+        </>
+      );
+    }
+
+    if (activeView === "telemetry") {
+      return (
+        <>
+          <div className="dashboardGrid telemetryViewGrid">
+            {renderTelemetryList()}
+            {renderEnergyPanel()}
+            {renderAssetInspector()}
+            {renderSimulatorPanel()}
+          </div>
+          <section className="lowerGrid">{renderAssetTable()}</section>
+        </>
+      );
+    }
+
+    if (activeView === "work") {
+      return (
+        <section className="lowerGrid">
+          {renderWorkPanel()}
+          <div className="sideStack">
+            {renderAlertsPanel()}
+            {renderAssetTable()}
+          </div>
+        </section>
+      );
+    }
+
+    if (activeView === "settings") {
+      return renderSettingsView();
+    }
+
+    return renderDashboardView();
+  };
+
   return (
     <div className="appShell">
       <aside className="sidebar" aria-label="Primary navigation">
         <div className="brandMark">
           <Building2 size={22} />
         </div>
-        <button className="navButton active" title="Dashboard" aria-label="Dashboard">
-          <LayoutDashboard size={21} />
-        </button>
-        <button className="navButton" title="Asset map" aria-label="Asset map">
-          <Map size={21} />
-        </button>
-        <button className="navButton" title="Telemetry" aria-label="Telemetry">
-          <Activity size={21} />
-        </button>
-        <button className="navButton" title="Work orders" aria-label="Work orders">
-          <ClipboardList size={21} />
-        </button>
-        <button className="navButton" title="Settings" aria-label="Settings">
-          <Settings size={21} />
-        </button>
+        {navigationItems.map((item) => (
+          <button
+            key={item.id}
+            className={`navButton ${activeView === item.id ? "active" : ""}`}
+            title={item.label}
+            aria-label={item.label}
+            aria-current={activeView === item.id ? "page" : undefined}
+            onClick={() => setActiveView(item.id)}
+          >
+            {item.icon}
+          </button>
+        ))}
       </aside>
 
       <main className="workspace">
         <header className="topbar">
-          <div>
+          <div className="titleStack">
             <p className="eyebrow">Bluemouse AI</p>
-            <h1>TwinOps Command Center</h1>
+            <div className="titleRow">
+              <h1>{viewTitles[activeView]}</h1>
+              <span className="demoBadge">Demo data</span>
+            </div>
           </div>
 
           <div className="topActions">
             <label className="searchBox">
               <Search size={17} />
-              <input aria-label="Search assets" placeholder="Search assets" />
+              <input
+                aria-label="Search assets"
+                placeholder="Search assets"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
             </label>
 
             <select
@@ -310,10 +775,10 @@ function App() {
               ))}
             </select>
 
-            <button className="iconButton" title="Notifications" aria-label="Notifications">
+            <button className="iconButton" title="Notifications" aria-label="Notifications" onClick={() => setActiveView("work")}>
               <Bell size={18} />
             </button>
-            <button className="iconButton" title="Export report" aria-label="Export report">
+            <button className="iconButton" title="Export report" aria-label="Export report" onClick={exportReport}>
               <Download size={18} />
             </button>
           </div>
@@ -328,10 +793,18 @@ function App() {
 
         <section className="controlBand" aria-label="Twin controls">
           <div className="segmented">
-            <button className="segment active">Operations</button>
-            <button className="segment">Maintenance</button>
-            <button className="segment">Energy</button>
-            <button className="segment">Simulation</button>
+            {workspaceTabs.map((tab) => (
+              <button
+                key={tab.id}
+                className={`segment ${activeView === "dashboard" && activeWorkspaceTab === tab.id ? "active" : ""}`}
+                onClick={() => {
+                  setActiveView("dashboard");
+                  setActiveWorkspaceTab(tab.id);
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
           <div className="liveControls">
@@ -343,214 +816,20 @@ function App() {
               {isLive ? <Pause size={17} /> : <Play size={17} />}
               {isLive ? "Live" : "Paused"}
             </button>
-            <button className="iconButton" title="Refresh telemetry" aria-label="Refresh telemetry">
+            <button className="iconButton" title="Refresh telemetry" aria-label="Refresh telemetry" onClick={refreshTelemetry}>
               <RefreshCw size={18} />
             </button>
           </div>
         </section>
 
-        <div className="dashboardGrid">
-          <section className="twinCanvas" aria-label="Digital twin map">
-            <div className="sectionHeader">
-              <div>
-                <p className="eyebrow">Facility Twin</p>
-                <h2>West Campus Building A</h2>
-              </div>
-              <span className="syncBadge">
-                <Server size={15} />
-                synced 4s ago
-              </span>
-            </div>
-
-            <div className="facilityMap">
-              {assets.map((asset, index) => (
-                <button
-                  key={asset.id}
-                  className={`assetNode ${asset.status} ${selectedAsset.id === asset.id ? "selected" : ""}`}
-                  style={{ gridArea: `node${index + 1}` }}
-                  onClick={() => setSelectedAssetId(asset.id)}
-                >
-                  <span className="nodeIcon">{asset.kind === "Pump" ? <Gauge size={18} /> : asset.kind === "AHU" ? <Fan size={18} /> : <Cpu size={18} />}</span>
-                  <span>
-                    <strong>{asset.name}</strong>
-                    <small>{asset.zone}</small>
-                  </span>
-                  <b>{Math.round(asset.health)}%</b>
-                </button>
-              ))}
-              <span className="mapLine lineA" />
-              <span className="mapLine lineB" />
-              <span className="mapLine lineC" />
-            </div>
-          </section>
-
-          <section className="assetInspector" aria-label="Selected asset">
-            <div className="sectionHeader compact">
-              <div>
-                <p className="eyebrow">Selected Asset</p>
-                <h2>{selectedAsset.name}</h2>
-              </div>
-              <span className={`statusPill ${selectedAsset.status}`}>
-                {statusIcon(selectedAsset.status)}
-                {statusLabel(selectedAsset.status)}
-              </span>
-            </div>
-
-            <div className="healthDial" style={{ "--health": selectedAsset.health } as React.CSSProperties}>
-              <span>{Math.round(selectedAsset.health)}%</span>
-              <small>Health</small>
-            </div>
-
-            <div className="inspectorStats">
-              <SmallStat icon={<Thermometer size={18} />} label="Temp" value={`${selectedAsset.temperature.toFixed(1)} C`} />
-              <SmallStat icon={<Activity size={18} />} label="Vibration" value={`${selectedAsset.vibration.toFixed(1)} mm/s`} />
-              <SmallStat icon={<Zap size={18} />} label="Energy" value={`${selectedAsset.energyKw.toFixed(1)} kW`} />
-            </div>
-
-            <div className="recommendation">
-              <Wrench size={18} />
-              <p>
-                Inspect within <strong>{selectedAsset.nextServiceDays} days</strong>. Failure probability is highest in
-                bearing wear and abnormal load cycling.
-              </p>
-            </div>
-          </section>
-
-          <section className="chartPanel" aria-label="Energy trend">
-            <div className="sectionHeader compact">
-              <div>
-                <p className="eyebrow">Energy</p>
-                <h2>24-hour demand</h2>
-              </div>
-              <span className="deltaBadge">+4.8%</span>
-            </div>
-            <Sparkline values={sparkline} />
-          </section>
-
-          <section className="simulatorPanel" aria-label="Scenario simulator">
-            <div className="sectionHeader compact">
-              <div>
-                <p className="eyebrow">Scenario</p>
-                <h2>Operating load</h2>
-              </div>
-              <SlidersHorizontal size={20} />
-            </div>
-
-            <label className="sliderRow">
-              <span>{loadFactor}%</span>
-              <input
-                type="range"
-                min="45"
-                max="95"
-                value={loadFactor}
-                onChange={(event) => setLoadFactor(Number(event.target.value))}
-              />
-            </label>
-
-            <div className="impactGrid">
-              <SmallStat label="Energy" value={`${scenarioImpact.energyDelta >= 0 ? "+" : ""}${scenarioImpact.energyDelta}%`} />
-              <SmallStat label="Risk" value={`${scenarioImpact.riskDelta >= 0 ? "+" : ""}${scenarioImpact.riskDelta}%`} />
-              <SmallStat label="Service" value={`${scenarioImpact.maintenanceShift >= 0 ? "+" : ""}${scenarioImpact.maintenanceShift} days`} />
-            </div>
-          </section>
-        </div>
-
-        <section className="lowerGrid">
-          <div className="assetTableWrap">
-            <div className="sectionHeader compact">
-              <div>
-                <p className="eyebrow">Asset Fleet</p>
-                <h2>{visibleAssets.length} monitored assets</h2>
-              </div>
-              <span className="mutedCount">{metrics.watch} watchlist</span>
-            </div>
-
-            <table className="assetTable">
-              <thead>
-                <tr>
-                  <th>Asset</th>
-                  <th>Zone</th>
-                  <th>Status</th>
-                  <th>Health</th>
-                  <th>Energy</th>
-                  <th>Service</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleAssets.map((asset) => (
-                  <tr key={asset.id} onClick={() => setSelectedAssetId(asset.id)}>
-                    <td>
-                      <strong>{asset.name}</strong>
-                      <span>{asset.kind}</span>
-                    </td>
-                    <td>{asset.zone}</td>
-                    <td>
-                      <span className={`statusPill ${asset.status}`}>{statusLabel(asset.status)}</span>
-                    </td>
-                    <td>
-                      <div className="healthBar">
-                        <span style={{ width: `${asset.health}%` }} />
-                      </div>
-                    </td>
-                    <td>{asset.energyKw.toFixed(1)} kW</td>
-                    <td>{asset.nextServiceDays}d</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="sideStack">
-            <section className="alertsPanel" aria-label="Active alerts">
-              <div className="sectionHeader compact">
-                <div>
-                  <p className="eyebrow">Alerts</p>
-                  <h2>Active events</h2>
-                </div>
-                <span className="mutedCount">{baseAlerts.length}</span>
-              </div>
-              {baseAlerts.map((alert) => (
-                <article key={alert.id} className={`eventItem ${alert.severity}`}>
-                  <span>{statusIcon(alert.severity)}</span>
-                  <div>
-                    <strong>{alert.title}</strong>
-                    <small>
-                      {alert.asset} · {alert.time}
-                    </small>
-                  </div>
-                </article>
-              ))}
-            </section>
-
-            <section className="workPanel" aria-label="Work orders">
-              <div className="sectionHeader compact">
-                <div>
-                  <p className="eyebrow">Maintenance</p>
-                  <h2>Work queue</h2>
-                </div>
-                <Wrench size={19} />
-              </div>
-              {workOrders.map((order) => (
-                <article key={order.id} className="workItem">
-                  <span className={`priority ${order.priority}`}>{order.priority}</span>
-                  <div>
-                    <strong>{order.task}</strong>
-                    <small>
-                      {order.id} · {order.asset} · {order.owner} · {order.due}
-                    </small>
-                  </div>
-                </article>
-              ))}
-            </section>
-          </div>
-        </section>
+        {renderActiveView()}
       </main>
     </div>
   );
 }
 
 type MetricProps = {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   value: string;
   tone: "green" | "yellow" | "red" | "blue";
@@ -569,7 +848,7 @@ function Metric({ icon, label, value, tone }: MetricProps) {
 }
 
 type SmallStatProps = {
-  icon?: React.ReactNode;
+  icon?: ReactNode;
   label: string;
   value: string;
 };
@@ -612,4 +891,3 @@ function Sparkline({ values }: { values: number[] }) {
 }
 
 export default App;
-

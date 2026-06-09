@@ -96,11 +96,13 @@ button {
 }
 
 .topbar,
+.titleRow,
 .controlBand,
 .sectionHeader,
 .topActions,
 .liveControls,
 .syncBadge,
+.demoBadge,
 .statusPill,
 .primaryButton,
 .iconButton,
@@ -109,6 +111,7 @@ button {
 .smallStat,
 .eventItem,
 .workItem,
+.settingsItem,
 .assetNode {
   display: flex;
   align-items: center;
@@ -146,6 +149,25 @@ h2 {
   font-size: 18px;
   line-height: 1.25;
   font-weight: 800;
+}
+
+.titleStack {
+  min-width: 0;
+}
+
+.titleRow {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.demoBadge {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: #74420d;
+  background: var(--yellow-soft);
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .topActions {
@@ -313,7 +335,8 @@ select {
 .simulatorPanel,
 .assetTableWrap,
 .alertsPanel,
-.workPanel {
+.workPanel,
+.telemetryPanel {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
@@ -339,6 +362,21 @@ select {
 .simulatorPanel {
   grid-area: simulator;
   padding: 18px;
+}
+
+.telemetryPanel {
+  grid-area: telemetry;
+  padding: 18px;
+}
+
+.mapViewGrid {
+  grid-template-areas: "map inspector";
+}
+
+.telemetryViewGrid {
+  grid-template-areas:
+    "telemetry inspector"
+    "chart simulator";
 }
 
 .sectionHeader {
@@ -371,15 +409,16 @@ select {
 
 .facilityMap {
   position: relative;
-  min-height: 326px;
+  min-height: 360px;
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  grid-template-rows: repeat(4, 74px);
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-rows: repeat(5, 68px);
   grid-template-areas:
-    "node1 node1 . node2 node2 node2"
-    ". . . node2 node2 node2"
-    "node3 node3 node4 node4 . node5"
-    "node3 node3 . node6 node6 node6";
+    "node1 node1 node1 node1 . . node2 node2 node2 node2 node2 node2"
+    "node1 node1 node1 node1 . . node2 node2 node2 node2 node2 node2"
+    ". . . . node4 node4 node4 node4 . node5 node5 node5"
+    "node3 node3 node3 node3 node4 node4 node4 node4 node6 node6 node6 node6"
+    "node3 node3 node3 node3 . . . . node6 node6 node6 node6";
   gap: 12px;
   padding: 16px;
   overflow: hidden;
@@ -390,6 +429,11 @@ select {
     linear-gradient(0deg, rgba(185, 200, 194, 0.22) 1px, transparent 1px),
     #f9fbfa;
   background-size: 34px 34px;
+}
+
+.focusPanel .facilityMap {
+  min-height: 460px;
+  grid-template-rows: repeat(5, 88px);
 }
 
 .mapLine {
@@ -427,6 +471,7 @@ select {
   gap: 12px;
   min-width: 0;
   min-height: 72px;
+  overflow: hidden;
   padding: 12px;
   text-align: left;
   border: 1px solid var(--line-strong);
@@ -450,6 +495,16 @@ select {
   font-weight: 700;
 }
 
+.assetNodeText {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.assetNodeText strong,
+.assetNodeText small {
+  overflow-wrap: anywhere;
+}
+
 .nodeIcon {
   width: 34px;
   height: 34px;
@@ -461,7 +516,16 @@ select {
 
 .assetNode b {
   flex: 0 0 auto;
+  margin-left: auto;
   font-size: 18px;
+}
+
+.emptyState {
+  grid-column: 1 / -1;
+  align-self: center;
+  justify-self: center;
+  color: var(--text-muted);
+  font-weight: 800;
 }
 
 .assetNode.healthy .nodeIcon {
@@ -613,10 +677,43 @@ select {
   gap: 14px;
 }
 
+.lowerGrid > .assetTableWrap:only-child {
+  grid-column: 1 / -1;
+}
+
 .assetTableWrap,
 .alertsPanel,
-.workPanel {
+.workPanel,
+.telemetryPanel {
   padding: 18px;
+}
+
+.readingGrid {
+  display: grid;
+  gap: 10px;
+}
+
+.readingItem {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(110px, 0.8fr) repeat(3, minmax(82px, 0.6fr));
+  gap: 10px;
+  align-items: center;
+  min-height: 54px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.readingItem:first-child {
+  border-top: 0;
+}
+
+.readingItem span {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.readingItem b {
+  text-align: right;
 }
 
 .assetTable {
@@ -755,16 +852,66 @@ select {
   background: var(--blue-soft);
 }
 
+.settingsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.settingsItem {
+  min-height: 116px;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.settingsItem > svg {
+  width: 44px;
+  height: 44px;
+  padding: 11px;
+  border-radius: 8px;
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.settingsItem strong,
+.settingsItem span {
+  display: block;
+}
+
+.settingsItem span {
+  color: var(--text-muted);
+  margin-top: 5px;
+  font-weight: 700;
+}
+
 @media (max-width: 1180px) {
   .statusStrip,
   .dashboardGrid,
-  .lowerGrid {
+  .lowerGrid,
+  .settingsGrid {
     grid-template-columns: 1fr;
   }
 
   .dashboardGrid {
     grid-template-areas:
       "map"
+      "inspector"
+      "chart"
+      "simulator";
+  }
+
+  .mapViewGrid {
+    grid-template-areas:
+      "map"
+      "inspector";
+  }
+
+  .telemetryViewGrid {
+    grid-template-areas:
+      "telemetry"
       "inspector"
       "chart"
       "simulator";
@@ -853,5 +1000,12 @@ select {
   .assetTable {
     min-width: 720px;
   }
-}
 
+  .readingItem {
+    grid-template-columns: 1fr;
+  }
+
+  .readingItem b {
+    text-align: left;
+  }
+}
